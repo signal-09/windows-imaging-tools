@@ -1,3 +1,7 @@
+*.img
 *.iso
+*.qcow2
+*.raw
+*.swp
 *.vfd
 /*.xml

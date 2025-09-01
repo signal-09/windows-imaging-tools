@@ -129,7 +129,7 @@ function Release-IP {
 }
 
 function Install-WindowsUpdates {
-    Import-Module "$resourcesDir\WindowsUpdates\WindowsUpdates"
+    Import-Module "$resourcesDir\WindowsUpdates"
     $BaseOSKernelVersion = [System.Environment]::OSVersion.Version
     $OSKernelVersion = ($BaseOSKernelVersion.Major.ToString() + "." + $BaseOSKernelVersion.Minor.ToString())
 

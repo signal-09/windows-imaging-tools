@@ -14,7 +14,7 @@ declare -a WIN_YEARS=(2016 2019 2022 2025)
 usage() {
     local IFS='|'
     cat 1>&2 <<EOD
-Usage: $CMD [OPTION] YEAR
+Usage: $CMD [OPTIONS] YEAR
 
 YEAR		Windows version identified by year (one of [${WIN_YEARS[*]}])
 
@@ -77,25 +77,26 @@ while true; do
 done
 
 if [[ $# -ne 1 || $1 =~ ' ' || ! " ${WIN_YEARS[*]} " =~ " $1 " ]]; then
-    usage 1>&2 && exit 1
+    usage 1>&2
+    exit 1
 fi
 
 export IMAGE_CODE="2k${1:2:2}"
 export IMAGE_NAME="$OS Server $1 $TYPE"
 export UNATTEND_XML="Autounattend-$HW.xml.in"
 
-FLOPPY_IMAGE=$BASEDIR/win$IMAGE_CODE.vfd
+WIN_VFD=$BASEDIR/win$IMAGE_CODE.vfd
 
-TMP_FLOPPY_IMAGE=`/bin/mktemp`
+TMP_DISK_IMAGE=`/bin/mktemp`
 TMP_MOUNT_PATH=`/bin/mktemp -d`
 
 rm -rf $TMP_MOUNT_PATH
-rm -f $TMP_FLOPPY_IMAGE
-dd if=/dev/zero of=$TMP_FLOPPY_IMAGE bs=1k count=1440
-mkfs.vfat $TMP_FLOPPY_IMAGE
+rm -f $TMP_DISK_IMAGE
+dd if=/dev/zero of=$TMP_DISK_IMAGE bs=1k count=1440
+mkfs.vfat $TMP_DISK_IMAGE
 
 mkdir $TMP_MOUNT_PATH
-mount -t vfat -o loop $TMP_FLOPPY_IMAGE $TMP_MOUNT_PATH
+mount -t vfat -o loop $TMP_DISK_IMAGE $TMP_MOUNT_PATH
 envsubst <$CONTENT_SRC/$UNATTEND_XML >$TMP_MOUNT_PATH/Autounattend.xml
 cp $CONTENT_SRC/*.ps1 $CONTENT_SRC/*.psm1 $TMP_MOUNT_PATH
 cp $CONTENT_SRC/*.conf $TMP_MOUNT_PATH
@@ -104,4 +105,4 @@ cp $CONFIG_INI $TMP_MOUNT_PATH/config.ini
 umount $TMP_MOUNT_PATH
 rmdir $TMP_MOUNT_PATH
 
-cp $TMP_FLOPPY_IMAGE $FLOPPY_IMAGE
+cp $TMP_DISK_IMAGE $WIN_VFD
