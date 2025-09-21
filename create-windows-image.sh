@@ -60,28 +60,28 @@ Usage: $CMD [OPTIONS] YEAR
 
 YEAR            Windows version identified by year (one of [${WIN_YEARS[*]}])
 
--i|--iso        Windows ISO image (default [hyp|win]2k[YY].iso)
--f|--floppy     Unattend floppy image (default [hyp|win]2k[YY].vfd)
--p|--prompt     Modify ISO for manual installation (ask to press key)
--n|--no-prompt  Modify ISO for direct installation (no press key)
--s|--size SIZE  Disk image size expressed in GiB (>= default 15/30 with updates)
--u|--update     Download and install all available updates (disk size >= 30)
--z|--compress   Compress qcow2 output image with zlib algorithm
--k|--kvm [ISO]  Install virtIO dirvers (default virtio-win.iso)
--c|--core       Install Windows without graphical environment (exclude --default)
--d|--desktop    Install Windows with graphical environment (default, exclude --core)
--V|--hyper-v    Install Hyper-V edition (implies --core)
--S|--standard   Install Standard edition
--D|--datacenter	Install DataCenter edition
--I|--ini FILE   Alternative INI file (default config.ini)
--K|--key KEY    Activate Product Key (KEY=XXXXX-XXXXX-XXXXX-XXXXX-XXXXX)
--N|--name NAME  Windows disk image name without extension (default [hyp|win]2k[YY])
-   --dry-run    Print actions instead of executing them
--h|--help       Display this help
+-i|--iso           Windows ISO image (default [hyp|win]2k[YY].iso)
+-f|--floppy        Unattend floppy image (default [hyp|win]2k[YY].vfd)
+-p|--prompt        Modify ISO for manual installation (ask to press key)
+-n|--no-prompt     Modify ISO for direct installation (no press key)
+-s|--size SIZE     Disk image size expressed in GiB (>= default 15/30 with updates)
+-u|--update        Download and install all available updates (disk size >= 30)
+-z|--compress      Compress qcow2 output image with zlib algorithm
+-v|--virtio [ISO]  Install virtIO dirvers (default virtio-win.iso)
+-c|--core          Install Windows without graphical environment (exclude --default)
+-d|--desktop       Install Windows with graphical environment (default, exclude --core)
+-V|--hyper-v       Install Hyper-V edition (implies --core)
+-S|--standard      Install Standard edition
+-D|--datacenter    Install DataCenter edition
+-I|--ini FILE      Alternative INI file (default config.ini)
+-K|--key KEY       Activate Product Key (KEY=XXXXX-XXXXX-XXXXX-XXXXX-XXXXX)
+-N|--name NAME     Windows disk image name without extension (default [hyp|win]2k[YY])
+   --dry-run       Print actions instead of executing them
+-h|--help          Display this help
 EOD
 }
 
-if ! OPTS=$(getopt -o 'i:f:pns:uzk::cdVSDI:K:N:h' -l 'iso:,floppy:,prompt,no-prompt,size:,update,compress,kvm::,core,desktop,hyper-v,standard,datacenter,ini:,key:,name:,dry-run,help' -n $CMD -- "$@"); then
+if ! OPTS=$(getopt -o 'i:f:pns:uzv::cdVSDI:K:N:h' -l 'iso:,floppy:,prompt,no-prompt,size:,update,compress,virtio::,core,desktop,hyper-v,standard,datacenter,ini:,key:,name:,dry-run,help' -n $CMD -- "$@"); then
     usage 1>&2
     exit 1
 fi
@@ -89,7 +89,6 @@ eval set -- "$OPTS"
 unset OPTS
 
 OS='Windows'
-HW='phy'
 CONFIG_INI='config.ini'
 VIRTIO_ISO='virtio-win.iso'
 INSTALL_UPDATES=False
@@ -129,8 +128,7 @@ while true; do
         -z|--compress)
             COMPRESS='-c'
             ;;
-        -k|--kvm)
-            HW='kvm'
+        -v|--virtio)
             [[ -z $2 ]] || VIRTIO_ISO=$2
             shift
             ;;
@@ -267,7 +265,7 @@ echo "Image found: $IMAGE"
 
 switch_iso_boot() {
     # Exit if no prompt change
-    [[ $# -eq 1 ]] || return
+    [[ $# -eq 1 ]] || return 0
 
     local TGT=$1
     declare -A SRC=(
@@ -340,7 +338,7 @@ dd if=/dev/zero of=$TMP_DISK_IMAGE bs=1k count=1440
 mkfs -t vfat $TMP_DISK_IMAGE
 mount -t vfat -o loop $TMP_DISK_IMAGE $TMP_MOUNT_PATH
 
-UNATTEND_XML="Autounattend-$HW.xml.in"
+UNATTEND_XML="Autounattend.xml.in"
 CONTENT_SRC="$BASEDIR/Autounattend"
 
 export IMAGE_CODE IMAGE_NAME PRODUCT_KEY INSTALL_UPDATES PURGE_UPDATES
@@ -366,8 +364,11 @@ TMP_DISK_IMAGE=$(/bin/mktemp)
 truncate --size=${SIZE}G "$TMP_DISK_IMAGE"
 
 qemu_system() {
+    local ACCEL='kvm'
+    [[ -c /dev/kvm ]] || ACCEL='tcg'
+
     qemu-system-x86_64 \
-	-accel kvm \
+	-accel $ACCEL \
 	-cpu host \
 	-smp 2 \
 	-m 4G \
@@ -380,7 +381,7 @@ qemu_system() {
 	-nic user \
 	-display none \
 	-vnc :0,to=100 \
-        "$@"
+	"$@"
 }
 
 # First install from ISO
