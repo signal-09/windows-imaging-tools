@@ -18,6 +18,7 @@ declare -A WIN_URL=(
 )
 
 : ${VIRTIO_URL:=https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso}
+: ${CLOUDBASE_URL:=https://cloudbase.it/downloads/CloudbaseInitSetup_Stable_x64.msi}
 
 run() {
     local CMD=$1
@@ -25,12 +26,12 @@ run() {
 
     if [[ $DRY_RUN ]]; then
         echo Executing: $CMD "$@" 1>&2
-        [[ $CMD =~ dd|mkfs|mount|rm|umount ]] || return 0
+        [[ $CMD =~ dd|mkdir|mkfs|mount|rm|umount ]] || return 0
     fi
     command $CMD "$@"
 }
 
-CMDS=(cp dd mkfs mount mv rm qemu-img qemu-system-x86_64 umount virt-install xorriso)
+CMDS=(cp dd mkdir mkfs mkisofs mount mv rm qemu-img qemu-system-x86_64 truncate umount virt-install)
 for CMD in ${CMDS[*]}; do eval 'function '$CMD' { run '$CMD' "$@"; }'; done
 
 CMD=$(basename $0)
@@ -63,7 +64,7 @@ YEAR            Windows version identified by year (one of [${WIN_YEARS[*]}])
 -i|--iso           Windows ISO image (default [hyp|win]2k[YY].iso)
 -f|--floppy        Unattend floppy image (default [hyp|win]2k[YY].vfd)
 -p|--prompt        Modify ISO for manual installation (ask to press key)
--n|--no-prompt     Modify ISO for direct installation (no press key)
+-n|--no-prompt     Modify ISO for direct installation (default, no press key)
 -s|--size SIZE     Disk image size expressed in GiB (>= default 15/30 with updates)
 -u|--update        Download and install all available updates (disk size >= 30)
 -z|--compress      Compress qcow2 output image with zlib algorithm
@@ -76,12 +77,14 @@ YEAR            Windows version identified by year (one of [${WIN_YEARS[*]}])
 -I|--ini FILE      Alternative INI file (default config.ini)
 -K|--key KEY       Activate Product Key (KEY=XXXXX-XXXXX-XXXXX-XXXXX-XXXXX)
 -N|--name NAME     Windows disk image name without extension (default [hyp|win]2k[YY])
+   --vnc [OPTS]    Enable VNC to interact with VM for image creation (OPT default to ":0,to=100")
+   --list          List images included in the Windows ISO
    --dry-run       Print actions instead of executing them
 -h|--help          Display this help
 EOD
 }
 
-if ! OPTS=$(getopt -o 'i:f:pns:uzv::cdVSDI:K:N:h' -l 'iso:,floppy:,prompt,no-prompt,size:,update,compress,virtio::,core,desktop,hyper-v,standard,datacenter,ini:,key:,name:,dry-run,help' -n $CMD -- "$@"); then
+if ! OPTS=$(getopt -o 'i:f:pns:uzv::cdVSDI:K:N:h' -l 'iso:,floppy:,prompt,no-prompt,size:,update,compress,virtio::,core,desktop,hyper-v,standard,datacenter,ini:,key:,name:,vnc::,list,dry-run,help' -n $CMD -- "$@"); then
     usage 1>&2
     exit 1
 fi
@@ -91,16 +94,17 @@ unset OPTS
 OS='Windows'
 CONFIG_INI='config.ini'
 VIRTIO_ISO='virtio-win.iso'
+CLOUDBASE_MSI='CloudbaseInitSetup.msi'
 INSTALL_UPDATES=False
 PURGE_UPDATES=False
+PROMPT='noprompt'
+DISPLAY='-display none'
+VNC_OPT=':0,to=100'
 while true; do
     case "$1" in
         -h|--help)
             usage
             exit 0
-            ;;
-        --dry-run)
-            DRY_RUN=True
             ;;
         -i|--iso)
             WIN_ISO=$2
@@ -176,6 +180,16 @@ while true; do
             DISK_NAME=$2
             shift
             ;;
+        --vnc)
+            DISPLAY="${DISPLAY} ${2-$VNC_OPT}"
+            shift
+            ;;
+        --list)
+            LIST=True
+            ;;
+        --dry-run)
+            DRY_RUN=True
+            ;;
         --)
             shift
             break
@@ -230,7 +244,7 @@ cleanup() {
     umount "$TMP_MOUNT_PATH/iso" || :
     rm -rf "$TMP_DISK_IMAGE" "$TMP_MOUNT_PATH" || :
 } &>/dev/null
-trap cleanup INT ERR
+trap cleanup INT ERR EXIT
 
 # Download Windows ISO image if not present
 if [[ ! -f "${WIN_ISO:=$WIN_VER.iso}" ]]; then
@@ -239,11 +253,25 @@ if [[ ! -f "${WIN_ISO:=$WIN_VER.iso}" ]]; then
     mv "$WIN_ISO.download" "$WIN_ISO"
 fi
 
-# Mount ISO image
+# Mount Windows ISO image
 mount -o loop -r "$WIN_ISO" "$TMP_MOUNT_PATH/iso"
+
+list_windows_images() {
+    local IMAGE
+
+    for IMAGE in "${IMAGES[@]}"; do
+        OPTIONS=$(get_options "$IMAGE")
+        echo "- $IMAGE: ($OPTIONS)"
+    done
+}
 
 # Lookup available Windows images
 mapfile -t IMAGES < <(wiminfo "$TMP_MOUNT_PATH/iso/sources/install.wim" | awk -F': *' '/^Name:/{ print $2 }')
+if [[ $LIST ]]; then
+    echo "Images included in $WIN_ISO:"
+    list_windows_images
+    exit 0
+fi
 if [[ $FLAGS == SERVER && ${#IMAGES[*]} == 1 ]]; then
     IMAGE=${IMAGES[0]##* }
 else
@@ -251,10 +279,7 @@ else
 fi
 if [[ -z "$IMAGE" ]]; then
     echo "No specific image selected, choose one from:"
-    for IMAGE in "${IMAGES[@]}"; do
-        OPTIONS=$(get_options "$IMAGE")
-        echo "- $IMAGE: ($OPTIONS)"
-    done
+    list_windows_images
     exit 1
 fi
 if [[ $IMAGE != $IMAGE_NAME ]]; then
@@ -300,9 +325,10 @@ switch_iso_boot() {
     eval `blkid -o export $(awk '$2~mount{ print $1 }' mount="$TMP_MOUNT_PATH" /proc/mounts)`
 
     # Burn the new ISO
-    xorriso -as mkisofs \
-            -iso-level 3 \
+    mkisofs -quiet \
+            -r -iso-level 3 \
             -volid "$LABEL" \
+            -allow-limited-size \
             -eltorito-boot boot/etfsboot.com \
             -eltorito-catalog boot/boot.cat \
             -no-emul-boot \
@@ -310,8 +336,6 @@ switch_iso_boot() {
             -boot-info-table \
             -eltorito-alt-boot \
             -e efi/microsoft/boot/efisys.bin \
-            -no-emul-boot \
-            -isohybrid-gpt-basdat \
             -o "$TMP_DISK_IMAGE" \
             "$TMP_MOUNT_PATH/overlay"
 
@@ -319,7 +343,7 @@ switch_iso_boot() {
     umount "$TMP_MOUNT_PATH/overlay"
     mv "$TMP_DISK_IMAGE" "$WIN_ISO"
 
-    echo "ISO image: $WIN_ISO"
+    echo "Windows ISO image: $WIN_ISO"
 }
 
 # Modify ISO image as needed
@@ -334,9 +358,11 @@ echo "Create Autounattend floppy image..."
 TMP_DISK_IMAGE=$(/bin/mktemp)
 TMP_MOUNT_PATH=$(/bin/mktemp -d)
 
-dd if=/dev/zero of=$TMP_DISK_IMAGE bs=1k count=1440
-mkfs -t vfat $TMP_DISK_IMAGE
-mount -t vfat -o loop $TMP_DISK_IMAGE $TMP_MOUNT_PATH
+{
+    dd if=/dev/zero of=$TMP_DISK_IMAGE bs=1k count=1440
+    mkfs -t vfat $TMP_DISK_IMAGE
+    mount -t vfat -o loop $TMP_DISK_IMAGE $TMP_MOUNT_PATH
+} &>/dev/null
 
 UNATTEND_XML="Autounattend.xml.in"
 CONTENT_SRC="$BASEDIR/Autounattend"
@@ -348,10 +374,11 @@ cp "$CONTENT_SRC"/*.ps* "$TMP_MOUNT_PATH/"
 cp "$CONTENT_SRC"/*.conf "$TMP_MOUNT_PATH/"
 
 umount "$TMP_MOUNT_PATH"
-rmdir "$TMP_MOUNT_PATH"
 
 mv "$TMP_DISK_IMAGE" "${WIN_VFD:=$WIN_VER.vfd}"
 echo "Autounattend floppy image: $WIN_VFD"
+
+rm -rf "$TMP_DISK_IMAGE" "$TMP_MOUNT_PATH"
 
 # Download virtIO ISO image if not present
 if [[ ! -f "$VIRTIO_ISO" ]]; then
@@ -359,6 +386,52 @@ if [[ ! -f "$VIRTIO_ISO" ]]; then
     curl -o "$VIRTIO_ISO.download" -C- -#fSL "$VIRTIO_URL"
     mv "$VIRTIO_ISO.download" "$VIRTIO_ISO"
 fi
+
+# Download Cloudbase-Init MSI if not present
+if [[ ! -f "$CLOUDBASE_MSI" ]]; then
+    echo "Downloading Cloudbase-Init MSI ($CLOUDBASE_MSI)..."
+    curl -o "$CLOUDBASE_MSI.download" -C- -#fSL "$CLOUDBASE_URL"
+    mv "$CLOUDBASE_MSI.download" "$CLOUDBASE_MSI"
+fi
+
+# Create driver iso image
+echo "Create driver iso image..."
+TMP_DISK_IMAGE=$(/bin/mktemp)
+TMP_MOUNT_PATH=$(/bin/mktemp -d)
+mkdir $TMP_MOUNT_PATH/{iso,upper,workdir,overlay}
+
+# Mount virtIO ISO image
+mount -o loop -r "$VIRTIO_ISO" "$TMP_MOUNT_PATH/iso"
+
+if [[ ! -f "$TMP_MOUNT_PATH/iso/$(basename $CLOUDBASE_MSI)" ]]; then
+    # Use overlay instead of copying to reduce disk space usage
+    mount -t overlay \
+          -o lowerdir="$TMP_MOUNT_PATH/iso",upperdir="$TMP_MOUNT_PATH/upper",workdir="$TMP_MOUNT_PATH/workdir" \
+          none "$TMP_MOUNT_PATH/overlay"
+
+    cp "$CLOUDBASE_MSI" "$TMP_MOUNT_PATH/overlay/"
+
+    # Extract blkid properties (e.g. LABEL)
+    eval `blkid -o export $(awk '$2~mount{ print $1 }' mount="$TMP_MOUNT_PATH" /proc/mounts)`
+
+    # Burn the new ISO
+    mkisofs -quiet \
+            -r -iso-level 4 \
+            -input-charset iso8859-1 \
+            -volid "$LABEL" \
+            -o "$TMP_DISK_IMAGE" \
+            "$TMP_MOUNT_PATH/overlay"
+
+    # Replace original ISO
+    umount "$TMP_MOUNT_PATH/overlay"
+    mv "$TMP_DISK_IMAGE" "$VIRTIO_ISO"
+fi
+
+echo "virtIO ISO image: $VIRTIO_ISO"
+
+# Clean up ISO tasks
+umount "$TMP_MOUNT_PATH/iso"
+rm -rf "$TMP_DISK_IMAGE" "$TMP_MOUNT_PATH"
 
 TMP_DISK_IMAGE=$(/bin/mktemp)
 truncate --size=${SIZE}G "$TMP_DISK_IMAGE"
@@ -379,29 +452,19 @@ qemu_system() {
 	-drive file="$VIRTIO_ISO",index=3,media=cdrom \
 	-drive file="$WIN_VFD",if=floppy,index=0,format=raw \
 	-nic user \
-	-display none \
-	-vnc :0,to=100 \
+        $DISPLAY \
 	"$@"
 }
 
-# First install from ISO
 echo "Install Windows from ISO..."
+# cdrom only needed on first boot
 qemu_system -no-reboot -drive file="$WIN_ISO",index=2,media=cdrom -boot order=d
 
 echo "Complete Windows installation from disk..."
-# Then complete installation from disk
+# multiple reboot required
 qemu_system
-
-#virt-install --connect qemu:///system \
-#	--name $WIN_VER \
-#	--ram 4096 --vcpus 2 \
-#	--network bridge=lan0,model=virtio \
-#	--disk format=raw,size=30,device=disk,bus=virtio \
-#	--cdrom $WIN_ISO \
-#	--disk path=$VIRTIO_ISO,device=cdrom \
-#	--disk path=$WIN_VFD,device=floppy \
-#	--osinfo detect=on,require=off \
-#	--graphics=vnc --boot uefi
 
 echo "Convert${COMPRESS+ and compress} Windows disk image ($QCOW_DISK)..."
 qemu-img convert $COMPRESS -p -O qcow2 "$TMP_DISK_IMAGE" "$QCOW_DISK"
+
+rm -rf "$TMP_DISK_IMAGE"

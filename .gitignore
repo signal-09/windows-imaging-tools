@@ -1,5 +1,7 @@
+*.download
 *.img
 *.iso
+*.msi
 *.qcow2
 *.raw
 *.swp

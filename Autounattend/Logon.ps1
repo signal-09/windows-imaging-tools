@@ -547,10 +547,6 @@ try {
             -Key "cloudbase_init_use_local_system" -Default $false -AsBoolean
     } catch {}
     try {
-        $cloudbaseInitMsiURL = Get-IniFileValue -Path $configIniPath -Section "cloudbase_init" `
-            -Key "cloudbase_init_download_url" -Default "https://cloudbase.it/downloads/CloudbaseInitSetup_Stable_x64.msi"
-    } catch {}
-    try {
         $enableShutdownWithoutLogon = Get-IniFileValue -Path $configIniPath -Key "enable_shutdown_without_logon" `
             -Default $false -AsBoolean
     } catch {}
@@ -640,7 +636,7 @@ try {
     $Host.UI.RawUI.WindowTitle = "Installing Cloudbase-Init..."
 
     $cloudbaseInitInstallDir = "$ENV:ProgramFiles\Cloudbase Solutions\Cloudbase-Init"
-    $cloudbaseInitMsiPath = "$ENV:SystemRoot\Temp\CloudbaseInitSetup.msi"
+    $cloudbaseInitMsiPath = "E:\CloudbaseInitSetup.msi"
     $cloudbaseInitConfigPath = "$resourcesDir\cloudbase-init.conf"
     $cloudbaseInitUnattendedConfigPath = "$resourcesDir\cloudbase-init-unattend.conf"
     $cloudbaseInitMsiLog = "$ENV:SystemDrive\CloudbaseInit.log"
@@ -651,10 +647,6 @@ try {
             $serialPortName = $serialPorts[0].DeviceID
         }
     }
-
-    Write-Log "Cloudbase-Init" "Download Cloudbase-Init Setup"
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $cloudbaseInitMsiURL -OutFile $cloudbaseInitMsiPath
 
     $msiexecArgumentList = "/i $CloudbaseInitMsiPath /qn /l*v $CloudbaseInitMsiLog"
     if ($serialPortName) {
@@ -672,7 +664,6 @@ try {
         Write-Log "Cloudbase-Init" "Failed to install cloudbase-init"
         throw "Installing $cloudbaseInitMsiPath failed. Log: $cloudbaseInitMsiLog"
     }
-    Remove-Item -Force $cloudbaseInitMsiPath
 
     if (Test-Path $cloudbaseInitConfigPath) {
         Copy-Item -Force $cloudbaseInitConfigPath "${cloudbaseInitInstallDir}\conf\cloudbase-init.conf"
