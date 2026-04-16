@@ -19,13 +19,14 @@ All credit for the original development belongs to the Cloudbase team.
 
 ## Requirements
 
-These scripts need root privileges and relies the following packages:
+These scripts require root privileges and rely on the following packages/commands:
 
-* bash
-* coreutils (`truncate`)
-* genisoimage (`mkisofs`)
-* qemu-system-x86 (`qemu-system-x86_64`)
-* qemu-utils (`qemu-img`)
+* bash: `bash`
+* curl: `curl`
+* coreutils: `truncate`
+* genisoimage: `mkisofs`
+* qemu-system-x86: `qemu-system-x86_64`
+* qemu-utils: `qemu-img`
 
 KVM is not mandatory but highly recommended.
 
