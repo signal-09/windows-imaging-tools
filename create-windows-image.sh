@@ -31,7 +31,7 @@ run() {
     command $CMD "$@"
 }
 
-CMDS=(cp dd mkdir mkfs mkisofs mount mv rm qemu-img qemu-system-x86_64 truncate umount virt-install)
+CMDS=(cp dd mkdir mkfs mkisofs mount mv rm qemu-img qemu-system-x86_64 truncate umount)
 for CMD in ${CMDS[*]}; do eval 'function '$CMD' { run '$CMD' "$@"; }'; done
 
 CMD=$(basename $0)
@@ -66,7 +66,7 @@ YEAR            Windows version identified by year (one of [${WIN_YEARS[*]}])
 -p|--prompt        Modify ISO for manual installation (ask to press key)
 -n|--no-prompt     Modify ISO for direct installation (default, no press key)
 -s|--size SIZE     Disk image size expressed in GiB (>= default 15/30 with updates)
--u|--update        Download and install all available updates (disk size >= 30)
+-u|--updates       Download and install all available updates (disk size >= 30)
 -z|--compress      Compress qcow2 output image with zlib algorithm
 -v|--virtio [ISO]  Install virtIO dirvers (default virtio-win.iso)
 -c|--core          Install Windows without graphical environment (exclude --default)
@@ -84,7 +84,7 @@ YEAR            Windows version identified by year (one of [${WIN_YEARS[*]}])
 EOD
 }
 
-if ! OPTS=$(getopt -o 'i:f:pns:uzv::cdVSDI:K:N:h' -l 'iso:,floppy:,prompt,no-prompt,size:,update,compress,virtio::,core,desktop,hyper-v,standard,datacenter,ini:,key:,name:,vnc::,list,dry-run,help' -n $CMD -- "$@"); then
+if ! OPTS=$(getopt -o 'i:f:pns:uzv::cdVSDI:K:N:h' -l 'iso:,floppy:,prompt,no-prompt,size:,updates,compress,virtio::,core,desktop,hyper-v,standard,datacenter,ini:,key:,name:,vnc::,list,dry-run,help' -n $CMD -- "$@"); then
     usage 1>&2
     exit 1
 fi
@@ -124,9 +124,9 @@ while true; do
             SIZE=$2
             shift
             ;;
-        -u|--update)
-            INSTALL_UPDATE=True
-            PURGE_UPDATE=True
+        -u|--updates)
+            INSTALL_UPDATES=True
+            PURGE_UPDATES=True
             : ${SIZE:=30}
             ;;
         -z|--compress)
@@ -181,7 +181,7 @@ while true; do
             shift
             ;;
         --vnc)
-            DISPLAY="${DISPLAY} ${2-$VNC_OPT}"
+            DISPLAY="${DISPLAY} -vnc ${2:-$VNC_OPT}"
             shift
             ;;
         --list)
@@ -217,7 +217,7 @@ fi
 
 # Check disk size
 : ${SIZE:=15}
-if [[ $INSTALL_UPDATE == True && $SIZE -lt 30 || $SIZE -lt 15 ]]; then
+if [[ $INSTALL_UPDATES == True && $SIZE -lt 30 || $SIZE -lt 15 ]]; then
     echo "Insufficient disk size: $SIZE (>= 15GiB or 30GiB with updates)"
     exit 1
 fi
